@@ -16,6 +16,7 @@ interface DocumentUpload {
   name: string;
   file?: File;
   uploaded: boolean;
+  fileUrl?: string;
 }
 
 interface FileUpload {
@@ -32,7 +33,6 @@ interface UBOPerson {
   controllingOwnershipInterest: string;
 }
 
-// Define valid entity types as a union type
 type ValidEntityType = 'Individual' | 'Corporate' | 'Trust';
 type PersonType = 'Shareholder' | 'Director';
 
@@ -40,7 +40,6 @@ interface KYCPerson {
   id: string;
   type: PersonType | '';
   entityType: ValidEntityType | '';
-  
   // Individual fields
   firstName: string;
   lastName: string;
@@ -53,7 +52,6 @@ interface KYCPerson {
   email: string;
   identityDocuments: FileUpload[];
   addressProofDocuments: FileUpload[];
-  
   // Corporate fields
   entityName: string;
   registrationNumber: string;
@@ -65,7 +63,6 @@ interface KYCPerson {
   incorporationDocuments: FileUpload[];
   companyAddressProofDocuments: FileUpload[];
   corporateRegistersDocuments: FileUpload[];
-  
   // Trust fields
   trustName: string;
   dateOfIncorporation: string;
@@ -115,78 +112,199 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
     selectedKYCType: '',
     selectedEntityType: ''
   });
+  const [error, setError] = useState<string>('');
+  const [uploading, setUploading] = useState<boolean>(false);
+  const [uploadProgress, setUploadProgress] = useState<{ [index: number]: number }>({});
 
-  const [sectionsOpen, setSectionsOpen] = useState({
-    kycSection: true,
-    documentsSection: true,
-    uboDetailsSection: true,
-    uboDeclarationSection: true
-  });
-
-  // Ref for the horizontal scroll container
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-
-  // Get configuration data
   const companyTypes = getCompanyTypes();
   const entityTypes = getEntityTypes();
   const proofOfIdentityOptions = getProofOfIdentityOptions();
   const countries = getCountries();
   const fileUploadSettings = getFileUploadSettings();
-
+const [sectionsOpen, setSectionsOpen] = useState({
+    kycSection: true,
+    documentsSection: true,
+    uboDetailsSection: true,
+    uboDeclarationSection: true
+  });
   const toggleSection = (section: keyof typeof sectionsOpen) => {
     setSectionsOpen(prev => ({ ...prev, [section]: !prev[section] }));
   };
 
   const handleCompanyTypeChange = (type: string) => {
     if (!isValidCompanyType(type)) {
-      console.warn(`Invalid company type: ${type}`);
+      setError(`Invalid company type: ${type}`);
       return;
     }
-
     const docNames = getDocumentsForCompanyType(type);
     const documents = docNames.map((name) => ({ name, uploaded: false }));
     setFormData(prev => ({ ...prev, companyType: type, documents }));
   };
 
-  const handleDocumentUpload = (index: number, file: File) => {
-    // Validate file size
-    const maxSizeInBytes = fileUploadSettings.maxFileSize * 1024 * 1024;
-    if (file.size > maxSizeInBytes) {
-      alert(`File size exceeds ${fileUploadSettings.maxFileSize}MB limit`);
-      return;
+ const handleDocumentUpload = async (index: number, file: File) => {
+  // Validate file size
+  const maxSizeInBytes = fileUploadSettings.maxFileSize * 1024 * 1024;
+  if (file.size > maxSizeInBytes) {
+    setError(`File size exceeds ${fileUploadSettings.maxFileSize}MB limit`);
+    return;
+  }
+
+  // Validate file format
+  if (!fileUploadSettings.allowedFormats.includes(file.type)) {
+    setError('Invalid file format. Please upload images or PDF files only.');
+    return;
+  }
+
+  // ADDED: Validate index
+  if (index < 0 || index >= formData.documents.length) {
+    setError(`Invalid document index: ${index}`);
+    return;
+  }
+
+  // Update state with file metadata
+  setFormData(prev => {
+    const newDocuments = prev.documents.map((doc, i) =>
+      i === index ? { ...doc, file, name: file.name, uploaded: true } : doc
+    );
+    // ADDED: Debug state update
+    console.log('Updated formData.documents:', newDocuments);
+    return { ...prev, documents: newDocuments };
+  });
+
+  // ADDED: Pass file directly to handleFileUpload to avoid race condition
+  setUploading(true);
+  setUploadProgress(prev => ({ ...prev, [index]: 0 }));
+  await handleFileUpload(index, file); // MODIFIED: Pass file directly
+  setUploading(false);
+  setUploadProgress(prev => ({ ...prev, [index]: 100 }));
+};
+
+  
+const handleFileUpload = async (index: number, file: File) => {
+  const token = localStorage.getItem('xano_token');
+  if (!token) {
+    setError('Authentication token is missing');
+    console.error('Missing xano_token in localStorage');
+    return;
+  }
+  if (!file) {
+    setError('No file provided for upload');
+    console.error('File is undefined for index:', index);
+    return;
+  }
+  console.log('Uploading file:', file.name, 'Size:', file.size, 'Type:', file.type);
+  const uploadData = new FormData();
+  uploadData.append('file', file);
+  try {
+    const res = await fetch('https://x8ki-letl-twmt.n7.xano.io/api:RnQdTyTK/uploads', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: uploadData
+    });
+    const result = await res.json();
+    // MODIFIED: Use result.path instead of result.file.url
+    if (res.ok && result.path) {
+      setFormData(prev => {
+        const newDocuments = prev.documents.map((doc, i) =>
+          i === index ? { ...doc, fileUrl: result.path } : doc
+        );
+        console.log('File uploaded successfully:', result.path);
+        return { ...prev, documents: newDocuments };
+      });
+    } else {
+      setError('File upload failed. Please try again.');
+      console.error('Upload response:', result);
+    }
+  } catch (error) {
+    setError('Network error occurred during file upload.');
+    console.error('Network error:', error);
+  }
+};
+
+  const handleCompanyDocumentsUpload = async () => {
+    const token = localStorage.getItem('xano_token');
+    const appId = localStorage.getItem('application_id');
+
+    if (!token || !appId) {
+      setError('Missing authentication token or application ID');
+      return false;
     }
 
-    // Validate file format
-    if (!fileUploadSettings.allowedFormats.includes(file.type)) {
-      alert('Invalid file format. Please upload images or PDF files only.');
-      return;
+    const validDocuments = formData.documents.filter(doc => doc.fileUrl);
+    if (!validDocuments.length) {
+      setError('No valid documents to upload');
+      return false;
     }
 
-    setFormData(prev => ({
-      ...prev,
-      documents: prev.documents.map((doc, i) =>
-        i === index ? { ...doc, file, name: file.name, uploaded: true } : doc
-      )
-    }));
+    const payload = {
+      application_id: Number(appId),
+      documents: validDocuments.map(doc => ({
+        document_type: doc.name,
+        file_url: doc.fileUrl || ''
+      }))
+    };
+
+    try {
+      const response = await fetch('https://x8ki-letl-twmt.n7.xano.io/api:RnQdTyTK/upload_company_documents', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (response.ok) {
+        return true;
+      } else {
+        const error = await response.json();
+        setError(error.message || 'Failed to upload company documents');
+        return false;
+      }
+    } catch (err) {
+      setError('Network error occurred during document submission');
+      return false;
+    }
   };
 
   const handleDocumentRemove = (index: number) => {
     setFormData(prev => ({
       ...prev,
       documents: prev.documents.map((doc, i) =>
-        i === index ? { ...doc, file: undefined, uploaded: false } : doc
+        i === index ? { ...doc, file: undefined, fileUrl: undefined, uploaded: false } : doc
       )
     }));
+    setUploadProgress(prev => {
+      const { [index]: _, ...rest } = prev;
+      return rest;
+    });
+  };
+
+  const handleNext = async () => {
+    setError('');
+    setUploading(true);
+
+    // Ensure all pending uploads are completed
+    const pendingUploads = formData.documents
+    .map((doc, index) => (doc.file && !doc.fileUrl ? { index, file: doc.file } : null))
+    .filter((item): item is { index: number; file: File } => item !== null);
+
+    await Promise.all(pendingUploads.map(({ index, file }) => handleFileUpload(index, file)));
+    const success = await handleCompanyDocumentsUpload();
+    setUploading(false);
+
+    if (success) {
+      onNext?.();
+    }
   };
 
   const handleInputChange = (field: keyof DocumentsUBOData, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  // Auto-scroll to the newly added person
   const scrollToNewPerson = () => {
     if (scrollContainerRef.current) {
-      // Scroll to the end (rightmost position) smoothly
       scrollContainerRef.current.scrollTo({
         left: scrollContainerRef.current.scrollWidth,
         behavior: 'smooth'
@@ -194,12 +312,10 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
     }
   };
 
-  // Type guard function to check if entityType is valid
   const isValidEntityType = (entityType: string): entityType is ValidEntityType => {
     return entityType === 'Individual' || entityType === 'Corporate' || entityType === 'Trust';
   };
 
-  // KYC Person Functions
   const addKYCPerson = () => {
     if (!formData.selectedKYCType || !formData.selectedEntityType) return;
     
@@ -207,8 +323,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
       id: Date.now().toString(),
       type: formData.selectedKYCType,
       entityType: formData.selectedEntityType,
-      
-      // Individual fields
       firstName: '',
       lastName: '',
       dateOfBirth: '',
@@ -220,8 +334,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
       email: '',
       identityDocuments: [],
       addressProofDocuments: [],
-      
-      // Corporate fields
       entityName: '',
       registrationNumber: '',
       countryOfRegistration: '',
@@ -232,8 +344,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
       incorporationDocuments: [],
       companyAddressProofDocuments: [],
       corporateRegistersDocuments: [],
-      
-      // Trust fields
       trustName: '',
       dateOfIncorporation: '',
       countryOfIncorporation: '',
@@ -252,7 +362,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
       kycPersons: [...prev.kycPersons, newPerson]
     }));
 
-    // Auto-scroll to the new person after a short delay to ensure DOM update
     setTimeout(scrollToNewPerson, 100);
   };
 
@@ -272,34 +381,27 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
     }));
   };
 
-  // File upload functions with validation
   const validateFileUpload = (files: FileList): boolean => {
     if (files.length > fileUploadSettings.maxFilesPerField) {
-      alert(`Maximum ${fileUploadSettings.maxFilesPerField} files allowed per field`);
+      setError(`Maximum ${fileUploadSettings.maxFilesPerField} files allowed per field`);
       return false;
     }
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      
-      // Check file size
       const maxSizeInBytes = fileUploadSettings.maxFileSize * 1024 * 1024;
       if (file.size > maxSizeInBytes) {
-        alert(`File "${file.name}" exceeds ${fileUploadSettings.maxFileSize}MB limit`);
+        setError(`File "${file.name}" exceeds ${fileUploadSettings.maxFileSize}MB limit`);
         return false;
       }
-
-      // Check file format
       if (!fileUploadSettings.allowedFormats.includes(file.type)) {
-        alert(`File "${file.name}" has invalid format. Please upload images or PDF files only.`);
+        setError(`File "${file.name}" has invalid format. Please upload images or PDF files only.`);
         return false;
       }
     }
-
     return true;
   };
 
-  // Updated document field mapping for all entity types
   type DocumentFieldType = 
     | 'identityDocuments' 
     | 'addressProofDocuments' 
@@ -341,14 +443,12 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
     }));
   };
 
-  // Get the count for each type to display proper numbering
   const getPersonNumber = (person: KYCPerson, index: number) => {
     const sameTypePersons = formData.kycPersons.filter(p => p.type === person.type && p.entityType === person.entityType);
     const personIndex = sameTypePersons.findIndex(p => p.id === person.id);
     return personIndex + 1;
   };
 
-  // UBO Person Functions
   const addUBOPerson = () => {
     setFormData(prev => ({
       ...prev,
@@ -378,7 +478,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
     }));
   };
 
-  // Render granular document upload section
   const renderGranularDocumentUpload = (person: KYCPerson, documentType: DocumentFieldType, label: string, description: string, icon: React.ReactNode) => {
     return (
       <div className="mb-4">
@@ -386,14 +485,10 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           {icon}
           <span>{label} *</span>
         </label>
-        
-        {/* Description */}
         <div className="bg-blue-50 p-2 rounded-md mb-3">
           <p className="text-xs text-blue-700">{description}</p>
         </div>
-
         <div className="space-y-2">
-          {/* Upload Button */}
           <label className="cursor-pointer">
             <input
               type="file"
@@ -411,8 +506,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
               <span className="text-sm text-gray-600">Upload Documents</span>
             </div>
           </label>
-          
-          {/* Uploaded Files */}
           {person[documentType].map((doc) => (
             <div key={doc.id} className="flex items-center justify-between bg-white p-2 rounded border">
               <span className="text-sm text-gray-700 truncate flex-1">{doc.name}</span>
@@ -430,14 +523,10 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
     );
   };
 
-  // Render Individual KYC fields
   const renderIndividualFields = (person: KYCPerson) => (
     <>
-      {/* First Name */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          First Name *
-        </label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">First Name *</label>
         <input
           type="text"
           value={person.firstName}
@@ -446,12 +535,8 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           placeholder="Enter first name"
         />
       </div>
-
-      {/* Last Name */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Last Name *
-        </label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Last Name *</label>
         <input
           type="text"
           value={person.lastName}
@@ -460,8 +545,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           placeholder="Enter last name"
         />
       </div>
-
-      {/* Date of Birth */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center space-x-1">
           <Calendar className="w-4 h-4" />
@@ -474,8 +557,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all duration-200"
         />
       </div>
-
-      {/* Nationality */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center space-x-1">
           <Globe className="w-4 h-4" />
@@ -492,12 +573,8 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           ))}
         </select>
       </div>
-
-      {/* Residing Country */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Residing Country *
-        </label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Residing Country *</label>
         <select
           value={person.residingCountry}
           onChange={(e) => updateKYCPerson(person.id, 'residingCountry', e.target.value)}
@@ -509,8 +586,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           ))}
         </select>
       </div>
-
-      {/* Proof of Identity */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center space-x-1">
           <CreditCard className="w-4 h-4" />
@@ -527,12 +602,8 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           ))}
         </select>
       </div>
-
-      {/* Document ID */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Document ID *
-        </label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Document ID *</label>
         <input
           type="text"
           value={person.documentId}
@@ -541,8 +612,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           placeholder="Enter document ID"
         />
       </div>
-
-      {/* Mobile Number */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center space-x-1">
           <Phone className="w-4 h-4" />
@@ -556,8 +625,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           placeholder="Enter mobile number"
         />
       </div>
-
-      {/* Email */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center space-x-1">
           <Mail className="w-4 h-4" />
@@ -571,8 +638,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           placeholder="Enter email address"
         />
       </div>
-
-      {/* Identity Documents Upload */}
       {renderGranularDocumentUpload(
         person, 
         'identityDocuments', 
@@ -580,8 +645,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
         'Valid government-issued identification documents (Passport, NIC, etc.)',
         <FileText className="w-4 h-4" />
       )}
-
-      {/* Address Proof Documents Upload */}
       {renderGranularDocumentUpload(
         person, 
         'addressProofDocuments', 
@@ -592,10 +655,8 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
     </>
   );
 
-  // Render Corporate KYC fields
   const renderCorporateFields = (person: KYCPerson) => (
     <>
-      {/* Entity Name */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center space-x-1">
           <Building className="w-4 h-4" />
@@ -609,12 +670,8 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           placeholder="Enter entity name"
         />
       </div>
-
-      {/* Registration Number */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Registration Number *
-        </label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Registration Number *</label>
         <input
           type="text"
           value={person.registrationNumber}
@@ -623,8 +680,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           placeholder="Enter registration number"
         />
       </div>
-
-      {/* Country of Registration */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center space-x-1">
           <Globe className="w-4 h-4" />
@@ -641,8 +696,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           ))}
         </select>
       </div>
-
-      {/* Date of Registration */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center space-x-1">
           <Calendar className="w-4 h-4" />
@@ -655,8 +708,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all duration-200"
         />
       </div>
-
-      {/* Registered Address */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center space-x-1">
           <Home className="w-4 h-4" />
@@ -670,8 +721,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           rows={2}
         />
       </div>
-
-      {/* Contact Email */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center space-x-1">
           <Mail className="w-4 h-4" />
@@ -685,8 +734,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           placeholder="Enter contact email"
         />
       </div>
-
-      {/* Contact Phone */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center space-x-1">
           <Phone className="w-4 h-4" />
@@ -700,8 +747,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           placeholder="Enter contact phone"
         />
       </div>
-
-      {/* Incorporation Documents Upload */}
       {renderGranularDocumentUpload(
         person, 
         'incorporationDocuments', 
@@ -709,8 +754,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
         'Certificate of Incorporation or E-Certificate of Incorporation, Certificate of change of name (if applicable)',
         <Building className="w-4 h-4" />
       )}
-
-      {/* Company Address Proof Upload */}
       {renderGranularDocumentUpload(
         person, 
         'companyAddressProofDocuments', 
@@ -718,8 +761,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
         'Proof of Company\'s registered address',
         <Home className="w-4 h-4" />
       )}
-
-      {/* Corporate Registers Upload */}
       {renderGranularDocumentUpload(
         person, 
         'corporateRegistersDocuments', 
@@ -730,10 +771,8 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
     </>
   );
 
-  // Render Trust KYC fields
   const renderTrustFields = (person: KYCPerson) => (
     <>
-      {/* Trust Name */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center space-x-1">
           <Shield className="w-4 h-4" />
@@ -747,8 +786,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           placeholder="Enter trust name"
         />
       </div>
-
-      {/* Date of Incorporation */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center space-x-1">
           <Calendar className="w-4 h-4" />
@@ -761,8 +798,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all duration-200"
         />
       </div>
-
-      {/* Country of Incorporation */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center space-x-1">
           <Globe className="w-4 h-4" />
@@ -779,12 +814,8 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           ))}
         </select>
       </div>
-
-      {/* Trustee Details */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Trustee Details *
-        </label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Trustee Details *</label>
         <textarea
           value={person.trusteeDetails}
           onChange={(e) => updateKYCPerson(person.id, 'trusteeDetails', e.target.value)}
@@ -793,12 +824,8 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           rows={2}
         />
       </div>
-
-      {/* Settlor Details */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Settlor Details *
-        </label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Settlor Details *</label>
         <textarea
           value={person.settlorDetails}
           onChange={(e) => updateKYCPerson(person.id, 'settlorDetails', e.target.value)}
@@ -807,12 +834,8 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           rows={2}
         />
       </div>
-
-      {/* Protector Details */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Protector Details
-        </label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Protector Details</label>
         <textarea
           value={person.protectorDetails}
           onChange={(e) => updateKYCPerson(person.id, 'protectorDetails', e.target.value)}
@@ -821,12 +844,8 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           rows={2}
         />
       </div>
-
-      {/* Beneficiary Details */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Beneficiary Details *
-        </label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Beneficiary Details *</label>
         <textarea
           value={person.beneficiaryDetails}
           onChange={(e) => updateKYCPerson(person.id, 'beneficiaryDetails', e.target.value)}
@@ -835,8 +854,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           rows={2}
         />
       </div>
-
-      {/* Trust Formation Documents Upload */}
       {renderGranularDocumentUpload(
         person, 
         'trustFormationDocuments', 
@@ -844,8 +861,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
         'Declaration of Trust or Trust deed',
         <Shield className="w-4 h-4" />
       )}
-
-      {/* Parties Identity Documents Upload */}
       {renderGranularDocumentUpload(
         person, 
         'partiesIdentityDocuments', 
@@ -853,8 +868,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
         'Identity documents and proof of address of the Settlor, Enforcer, Protector & Beneficiaries',
         <User className="w-4 h-4" />
       )}
-
-      {/* Trustee Corporate Documents Upload */}
       {renderGranularDocumentUpload(
         person, 
         'trusteeCorporateDocuments', 
@@ -862,8 +875,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
         'Certificate of Incorporation of Trustee, Register of Directors, Register of Shareholders',
         <Building className="w-4 h-4" />
       )}
-
-      {/* Trustee Address Proof Upload */}
       {renderGranularDocumentUpload(
         person, 
         'trusteeAddressProofDocuments', 
@@ -874,7 +885,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
     </>
   );
 
-  // Render KYC Person Card - Compact horizontal format for all
   const renderKYCPersonCard = (person: KYCPerson) => {
     const personNumber = getPersonNumber(person, 0);
     const entityConfig = getEntityTypeConfig(person.entityType);
@@ -897,7 +907,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
             <Trash2 className="w-4 h-4" />
           </button>
         </div>
-
         <div className="grid gap-4 grid-cols-1">
           {person.entityType === 'Individual' && renderIndividualFields(person)}
           {person.entityType === 'Corporate' && renderCorporateFields(person)}
@@ -924,6 +933,18 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
       </header>
 
       <div className="max-w-7xl mx-auto px-6 py-8">
+        {error && (
+          <div className="mb-6 p-4 bg-red-100 text-red-700 rounded-md">
+            {error}
+            <button
+              className="ml-4 text-red-900 underline"
+              onClick={() => setError('')}
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
         <div className="mb-6">
           <label className="block text-sm font-medium text-gray-700 mb-2">Select Company Type</label>
           <select
@@ -938,7 +959,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           </select>
         </div>
 
-        {/* KYC SECTION */}
         <div className="bg-white rounded-lg shadow-sm overflow-hidden mb-8">
           <button
             type="button"
@@ -955,7 +975,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
 
           {sectionsOpen.kycSection && (
             <div className="p-6">
-              {/* KYC Type and Entity Type Selection */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -971,7 +990,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
                     <option value="Director">Directors</option>
                   </select>
                 </div>
-
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Select Entity Type
@@ -988,7 +1006,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
                   </select>
                 </div>
               </div>
-
               <div className="flex justify-between items-center mb-6">
                 <p className="text-gray-600">
                   {formData.selectedKYCType && formData.selectedEntityType ? 
@@ -1010,13 +1027,9 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
                   <span>Add {formData.selectedEntityType} {formData.selectedKYCType}</span>
                 </button>
               </div>
-
-              {/* Single Horizontal Scroll for ALL Persons */}
               {formData.kycPersons.length > 0 ? (
                 <div className="mb-4">
                   <h4 className="text-md font-semibold text-gray-800 mb-4">All KYC Persons</h4>
-                  
-                  {/* Unified horizontal scroll container */}
                   <div 
                     ref={scrollContainerRef}
                     className="flex space-x-4 overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100"
@@ -1039,7 +1052,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           )}
         </div>
 
-        {/* DOCUMENTS SECTION */}
         {formData.companyType && (
           <div className="bg-white rounded-lg shadow-sm overflow-hidden mb-8">
             <button
@@ -1060,7 +1072,12 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
                 {formData.documents.map((document, index) => (
                   <div key={index} className="flex items-center space-x-4 p-4 border border-gray-200 rounded-lg hover:border-red-300 transition-colors duration-200">
                     <div className="flex-1 text-sm font-medium text-gray-700">{document.name}</div>
-                    <div className="flex space-x-2">
+                    <div className="flex space-x-2 items-center">
+                      {uploading && uploadProgress[index] !== undefined && (
+                        <div className="text-sm text-gray-500">
+                          {uploadProgress[index] < 100 ? `Uploading... ${uploadProgress[index]}%` : 'Uploaded'}
+                        </div>
+                      )}
                       <label className="cursor-pointer">
                         <input
                           type="file"
@@ -1070,6 +1087,7 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
                             const file = e.target.files?.[0];
                             if (file) handleDocumentUpload(index, file);
                           }}
+                          disabled={uploading}
                         />
                         <div className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded transition-all duration-200">
                           <Upload className="w-5 h-5" />
@@ -1080,6 +1098,7 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
                           type="button"
                           onClick={() => handleDocumentRemove(index)}
                           className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded transition-all duration-200"
+                          disabled={uploading}
                         >
                           <Trash2 className="w-5 h-5" />
                         </button>
@@ -1092,7 +1111,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           </div>
         )}
 
-        {/* UBO DETAILS SECTION */}
         <div className="bg-white rounded-lg shadow-sm overflow-hidden mb-8">
           <button
             type="button"
@@ -1131,7 +1149,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
           )}
         </div>
 
-        {/* DECLARATION SECTION */}
         <div className="bg-white rounded-lg shadow-sm overflow-hidden mb-8">
           <button
             type="button"
@@ -1147,7 +1164,6 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
               <p className="text-sm text-gray-700 mb-4">
                 I/We confirm that the information provided above is accurate and complete to the best of my/our knowledge.
               </p>
-              
               <div className="flex items-start space-x-2">
                 <input
                   type="checkbox"
@@ -1169,15 +1185,17 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
             type="button"
             onClick={onBack}
             className="bg-gray-400 hover:bg-gray-500 text-white font-semibold py-3 px-8 rounded-lg transition-colors duration-200"
+            disabled={uploading}
           >
             Previous
           </button>
           <button
             type="button"
-            onClick={onNext}
-            className="bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-8 rounded-lg transition-colors duration-200"
+            onClick={handleNext}
+            className={`bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-8 rounded-lg transition-colors duration-200 ${uploading ? 'opacity-50 cursor-not-allowed' : ''}`}
+            disabled={uploading}
           >
-            Next
+            {uploading ? 'Uploading...' : 'Next'}
           </button>
         </div>
       </div>

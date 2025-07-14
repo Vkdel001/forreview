@@ -77,6 +77,56 @@ const BusinessProfileForm: React.FC<BusinessProfileFormProps> = ({ onNext, onBac
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
+
+  const handleSubmit = async () => {
+    console.log("✅ handleSubmit called");
+
+    const token = localStorage.getItem('xano_token');
+    const appId = localStorage.getItem('application_id'); // ✅ correct key
+
+    console.log("🔐 Token:", token);
+  console.log("📄 Application ID:", appId);
+
+    if (!token || !appId) {
+      console.error('Missing token or application id');
+      return;
+    }
+
+    const payload = {
+      application: Number(appId),
+      business_activity: formData.businessActivity,
+      company_website: formData.companyWebsite,
+      number_of_employees: formData.numberOfEmployees,
+      has_subsidiaries: formData.hasSubsidiaries,
+      subsidiaries: formData.subsidiaries,
+      business_forecast: formData.businessForecast,
+      monthly_transactions: formData.monthlyTransactions
+    };
+    console.log('🚀 Payload:', payload);
+    console.log('🔐 Token:', token);
+
+    try {
+      const response = await fetch('https://x8ki-letl-twmt.n7.xano.io/api:u381AJ84/create_business_profile', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (response.ok) {
+        console.log('✅ Business profile saved');
+        onNext?.();
+      } else {
+        const error = await response.json();
+        console.error('❌ Failed to save:', error);
+      }
+    } catch (err) {
+      console.error('❌ Network error:', err);
+    }
+  };
+
   const addSubsidiary = () => {
     setFormData(prev => ({
       ...prev,
@@ -685,7 +735,7 @@ const BusinessProfileForm: React.FC<BusinessProfileFormProps> = ({ onNext, onBac
             </button>
             <button
               type="button"
-              onClick={onNext}
+              onClick={handleSubmit}
               className="bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-8 rounded-lg transition-colors duration-200"
             >
               Next
@@ -695,6 +745,11 @@ const BusinessProfileForm: React.FC<BusinessProfileFormProps> = ({ onNext, onBac
       </div>
     </div>
   );
+
+
 };
+
+
+
 
 export default BusinessProfileForm;

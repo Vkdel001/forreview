@@ -5,11 +5,11 @@ interface AuthFormProps {
 }
 
 // Xano Signup API call
-async function xanoSignup(email: string, password: string) {
+async function xanoSignup(email: string, password: string,userType: string) {
   const response = await fetch('https://x8ki-letl-twmt.n7.xano.io/api:d6ALaC-c/auth/signup', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password , user_type: userType }),
   });
   const result = await response.json();
   if (!response.ok) {
@@ -51,7 +51,7 @@ const AuthForm: React.FC<AuthFormProps> = ({ onLoginSuccess }) => {
       let result;
       if (isSignUp) {
         // Signup flow
-        result = await xanoSignup(email, password);
+        result = await xanoSignup(email, password,userType);
         // If Xano returns an authToken, treat as logged in
         const token = result.authToken;
         if (token) {
