@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronUp, Plus, Minus } from 'lucide-react';
+import SubsidiariesSection from './forms/business/SubsidiariesSection.tsx';
+import ForecastTable from './forms/business/ForecastTable.tsx';
 
 interface BusinessProfileData {
   businessActivity: string;
@@ -312,243 +314,34 @@ const BusinessProfileForm: React.FC<BusinessProfileFormProps> = ({ onNext, onBac
                   </div>
                 </div>
 
-                <div className="bg-red-50 p-4 rounded-lg">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">List of Subsidiaries</h3>
-                  
-                  <div className="mb-4">
-                    <p className="text-sm text-gray-700 mb-2">
-                      Do you have any business subsidiaries? 
-                      <span className="italic text-gray-500 ml-2">Please tick as appropriate</span>
-                    </p>
-                    <div className="flex items-center space-x-4">
-                      <label className="flex items-center">
-                        <input
-                          type="radio"
-                          name="hasSubsidiaries"
-                          checked={formData.hasSubsidiaries === true}
-                          onChange={() => handleInputChange('hasSubsidiaries', true)}
-                          className="mr-2 text-red-600 focus:ring-red-500"
-                        />
-                        Yes
-                      </label>
-                      <label className="flex items-center">
-                        <input
-                          type="radio"
-                          name="hasSubsidiaries"
-                          checked={formData.hasSubsidiaries === false}
-                          onChange={() => handleInputChange('hasSubsidiaries', false)}
-                          className="mr-2 text-red-600 focus:ring-red-500"
-                        />
-                        No
-                      </label>
-                    </div>
-                  </div>
+                <SubsidiariesSection
+                  hasSubsidiaries={formData.hasSubsidiaries}
+                  subsidiaries={formData.subsidiaries}
+                  onToggleHasSubsidiaries={(value) => handleInputChange('hasSubsidiaries', value)}
+                  onAdd={addSubsidiary}
+                  onRemove={removeSubsidiary}
+                  onUpdate={updateSubsidiary}
+                  />
 
-                  {formData.hasSubsidiaries && (
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="font-medium text-gray-700">Subsidiary</div>
-                        <div className="font-medium text-gray-700">Country of Inc</div>
-                      </div>
-                      
-                      {formData.subsidiaries.map((subsidiary, index) => (
-                        <div key={index} className="grid grid-cols-2 gap-4 items-center">
-                          <input
-                            type="text"
-                            value={subsidiary.name}
-                            onChange={(e) => updateSubsidiary(index, 'name', e.target.value)}
-                            className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                            placeholder="Subsidiary name"
-                          />
-                          <div className="flex items-center space-x-2">
-                            <input
-                              type="text"
-                              value={subsidiary.countryOfIncorporation}
-                              onChange={(e) => updateSubsidiary(index, 'countryOfIncorporation', e.target.value)}
-                              className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                              placeholder="Country"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => removeSubsidiary(index)}
-                              className="text-red-600 hover:text-red-700"
-                            >
-                              <Minus className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                      
-                      <button
-                        type="button"
-                        onClick={addSubsidiary}
-                        className="flex items-center space-x-1 text-red-600 hover:text-red-700"
-                      >
-                        <Plus className="w-4 h-4" />
-                        <span className="text-sm">Add Subsidiary</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
 
                 <div className="bg-red-50 p-4 rounded-lg">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                    Business forecast for 3 years - as per latest financial statement
-                  </h3>
                   
-                  <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Currency
-                    </label>
-                    <select
-                      value={formData.businessForecast.currency}
-                      onChange={(e) => setFormData(prev => ({
-                        ...prev,
-                        businessForecast: { ...prev.businessForecast, currency: e.target.value }
-                      }))}
-                      className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                    >
-                      <option value="">dropdown</option>
-                      <option value="MUR">MUR</option>
-                      <option value="USD">USD</option>
-                      <option value="EUR">EUR</option>
-                      <option value="GBP">GBP</option>
-                    </select>
-                  </div>
+                  
+                  
 
                   <div className="overflow-x-auto">
-                    <table className="w-full border-collapse border border-gray-300 text-sm">
-                      <thead>
-                        <tr className="bg-gray-100">
-                          <th className="border border-gray-300 px-3 py-2 text-left font-medium">Inflow</th>
-                          {formData.businessForecast.years.map((year, index) => (
-                            <th key={index} className="border border-gray-300 px-3 py-2 text-center font-medium">
-                              {year.year} (date picker)
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td className="border border-gray-300 px-3 py-2 font-medium">Annual turnover</td>
-                          {formData.businessForecast.years.map((year, index) => (
-                            <td key={index} className="border border-gray-300 px-2 py-1">
-                              <input
-                                type="number"
-                                value={year.annualTurnover}
-                                onChange={(e) => updateForecastYear(index, 'annualTurnover', e.target.value)}
-                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
-                                placeholder="Numerical"
-                              />
-                            </td>
-                          ))}
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-300 px-3 py-2 font-medium">Trading / Dividend / Other income</td>
-                          {formData.businessForecast.years.map((year, index) => (
-                            <td key={index} className="border border-gray-300 px-2 py-1">
-                              <input
-                                type="number"
-                                value={year.tradingDividendOtherIncome}
-                                onChange={(e) => updateForecastYear(index, 'tradingDividendOtherIncome', e.target.value)}
-                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
-                                placeholder="Numerical"
-                              />
-                            </td>
-                          ))}
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-300 px-3 py-2 font-medium">Loan from shareholder / Related party</td>
-                          {formData.businessForecast.years.map((year, index) => (
-                            <td key={index} className="border border-gray-300 px-2 py-1">
-                              <input
-                                type="number"
-                                value={year.loanFromShareholderRelatedParty}
-                                onChange={(e) => updateForecastYear(index, 'loanFromShareholderRelatedParty', e.target.value)}
-                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
-                                placeholder="Numerical"
-                              />
-                            </td>
-                          ))}
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-300 px-3 py-2 font-medium">Consultancy fees</td>
-                          {formData.businessForecast.years.map((year, index) => (
-                            <td key={index} className="border border-gray-300 px-2 py-1">
-                              <input
-                                type="number"
-                                value={year.consultancyFees}
-                                onChange={(e) => updateForecastYear(index, 'consultancyFees', e.target.value)}
-                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
-                                placeholder="Numerical"
-                              />
-                            </td>
-                          ))}
-                        </tr>
-                        <tr className="bg-gray-50">
-                          <td className="border border-gray-300 px-3 py-2 font-medium">Outflow</td>
-                          <td className="border border-gray-300 px-3 py-2"></td>
-                          <td className="border border-gray-300 px-3 py-2"></td>
-                          <td className="border border-gray-300 px-3 py-2"></td>
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-300 px-3 py-2 font-medium">Expenses</td>
-                          {formData.businessForecast.years.map((year, index) => (
-                            <td key={index} className="border border-gray-300 px-2 py-1">
-                              <input
-                                type="number"
-                                value={year.investment}
-                                onChange={(e) => updateForecastYear(index, 'investment', e.target.value)}
-                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
-                                placeholder="Numerical"
-                              />
-                            </td>
-                          ))}
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-300 px-3 py-2 font-medium">Investment</td>
-                          {formData.businessForecast.years.map((year, index) => (
-                            <td key={index} className="border border-gray-300 px-2 py-1">
-                              <input
-                                type="number"
-                                value={year.investment}
-                                onChange={(e) => updateForecastYear(index, 'investment', e.target.value)}
-                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
-                                placeholder="Numerical"
-                              />
-                            </td>
-                          ))}
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-300 px-3 py-2 font-medium">Loan from shareholder / Related party</td>
-                          {formData.businessForecast.years.map((year, index) => (
-                            <td key={index} className="border border-gray-300 px-2 py-1">
-                              <input
-                                type="number"
-                                value={year.loanFromShareholderRelatedPartyOutflow}
-                                onChange={(e) => updateForecastYear(index, 'loanFromShareholderRelatedPartyOutflow', e.target.value)}
-                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-red-500"
-                                placeholder="Numerical"
-                              />
-                            </td>
-                          ))}
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-300 px-3 py-2 font-medium">Net Cash</td>
-                          {formData.businessForecast.years.map((year, index) => (
-                            <td key={index} className="border border-gray-300 px-2 py-1">
-                              <input
-                                type="text"
-                                value={year.netCash}
-                                className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100"
-                                placeholder="Autopopulate"
-                                readOnly
-                              />
-                            </td>
-                          ))}
-                        </tr>
-                      </tbody>
-                    </table>
+                    <ForecastTable
+              currency={formData.businessForecast.currency}
+               years={formData.businessForecast.years}
+              onCurrencyChange={(value) =>
+              setFormData(prev => ({
+               ...prev,
+              businessForecast: { ...prev.businessForecast, currency: value }
+              }))
+              }
+              onYearUpdate={updateForecastYear}
+              />
+
                   </div>
                 </div>
 

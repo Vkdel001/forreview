@@ -1,0 +1,11 @@
+export { default as AuthForm } from './AuthForm';
+export { default as AuthWrapper } from './AuthWrapper';
+export { default as LandingPage } from './LandingPage';
+export { default as MCLandingPage } from './MCLandingPage';
+export { default as AccountOpeningForm } from './AccountOpeningForm';
+export { default as BusinessProfileForm } from './BusinessProfileForm';
+export { default as DocumentsUBOForm } from './DocumentsUBOForm';
+export { default as InternetBankingForm } from './InternetBankingForm';
+export { default as ApprovalMatrixForm } from './ApprovalMatrixForm';
+export { default as EntityTaxResidencyForm } from './EntityTaxResidencyForm';
+export {}; 

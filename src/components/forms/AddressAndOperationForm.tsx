@@ -2,8 +2,9 @@
 import React from 'react';
 
 interface AddressAndOperationFormProps {
-  formData: FormData;
-  onChange: (field: keyof FormData, value: any) => void;
+  formData: any;
+  
+  onChange: (field: string, value: any) => void;
 }
 
 const AddressAndOperationForm: React.FC<AddressAndOperationFormProps> = ({ formData, onChange }) => {
