@@ -175,98 +175,61 @@ const [sectionsOpen, setSectionsOpen] = useState({
   // ADDED: Pass file directly to handleFileUpload to avoid race condition
   setUploading(true);
   setUploadProgress(prev => ({ ...prev, [index]: 0 }));
-  await handleFileUpload(index, file); // MODIFIED: Pass file directly
+  await handleFileUpload(index, file, 'documents'); // MODIFIED: Pass file directly
   setUploading(false);
   setUploadProgress(prev => ({ ...prev, [index]: 100 }));
 };
 
-  
-const handleFileUpload = async (index: number, file: File) => {
+const handleFileUpload = async (
+  index: number,
+  file: File,
+  section: keyof typeof formData
+) => {
   const token = localStorage.getItem('xano_token');
   if (!token) {
     setError('Authentication token is missing');
-    console.error('Missing xano_token in localStorage');
     return;
   }
-  if (!file) {
-    setError('No file provided for upload');
-    console.error('File is undefined for index:', index);
-    return;
-  }
-  console.log('Uploading file:', file.name, 'Size:', file.size, 'Type:', file.type);
+
   const uploadData = new FormData();
   uploadData.append('file', file);
+
   try {
     const res = await fetch('https://x8ki-letl-twmt.n7.xano.io/api:RnQdTyTK/uploads', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        // DO NOT add Content-Type here
+      },
       body: uploadData
     });
+
     const result = await res.json();
-    // MODIFIED: Use result.path instead of result.file.url
+    console.log("📦 Upload result:", result);
+
     if (res.ok && result.path) {
-      setFormData(prev => {
-        const newDocuments = prev.documents.map((doc, i) =>
-          i === index ? { ...doc, fileUrl: result.path } : doc
-        );
-        console.log('File uploaded successfully:', result.path);
-        return { ...prev, documents: newDocuments };
+      setFormData((prev) => {
+        const updatedDocs = [...(prev[section] as any[])];
+        updatedDocs[index] = {
+          ...updatedDocs[index],
+          fileUrl: result.path
+        };
+        return { ...prev, [section]: updatedDocs };
       });
     } else {
       setError('File upload failed. Please try again.');
-      console.error('Upload response:', result);
+      console.error('❌ Upload failed:', result);
     }
-  } catch (error) {
+  } catch (err) {
     setError('Network error occurred during file upload.');
-    console.error('Network error:', error);
+    console.error('🌩️ Upload error:', err);
   }
 };
 
-  const handleCompanyDocumentsUpload = async () => {
-    const token = localStorage.getItem('xano_token');
-    const appId = localStorage.getItem('application_id');
 
-    if (!token || !appId) {
-      setError('Missing authentication token or application ID');
-      return false;
-    }
 
-    const validDocuments = formData.documents.filter(doc => doc.fileUrl);
-    if (!validDocuments.length) {
-      setError('No valid documents to upload');
-      return false;
-    }
 
-    const payload = {
-      application_id: Number(appId),
-      documents: validDocuments.map(doc => ({
-        document_type: doc.name,
-        file_url: doc.fileUrl || ''
-      }))
-    };
-
-    try {
-      const response = await fetch('https://x8ki-letl-twmt.n7.xano.io/api:RnQdTyTK/upload_company_documents', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify(payload)
-      });
-
-      if (response.ok) {
-        return true;
-      } else {
-        const error = await response.json();
-        setError(error.message || 'Failed to upload company documents');
-        return false;
-      }
-    } catch (err) {
-      setError('Network error occurred during document submission');
-      return false;
-    }
-  };
+   
 
   const handleDocumentRemove = (index: number) => {
     setFormData(prev => ({
@@ -281,23 +244,92 @@ const handleFileUpload = async (index: number, file: File) => {
     });
   };
 
-  const handleNext = async () => {
-    setError('');
-    setUploading(true);
+  //const handleNext = async () => {
+    //setError('');
+    //setUploading(true);
 
     // Ensure all pending uploads are completed
-    const pendingUploads = formData.documents
+    //const pendingUploads = formData.documents
+    //.map((doc, index) => (doc.file && !doc.fileUrl ? { index, file: doc.file } : null))
+    //.filter((item): item is { index: number; file: File } => item !== null);
+
+    // await Promise.all(pendingUploads.map(({ index, file }) => handleFileUpload(index, file)));
+      //const success = await handleCompanyDocumentsUpload();
+      //setUploading(false);
+
+  //    if (success) {
+  //     onNext?.();
+    //  }
+    //setUploading(false);
+  //onNext?.();
+    //};
+
+
+const handleNext = async () => {
+  setError('');
+  setUploading(true);
+
+  const pendingUploads = formData.documents
     .map((doc, index) => (doc.file && !doc.fileUrl ? { index, file: doc.file } : null))
     .filter((item): item is { index: number; file: File } => item !== null);
 
-    await Promise.all(pendingUploads.map(({ index, file }) => handleFileUpload(index, file)));
-    const success = await handleCompanyDocumentsUpload();
-    setUploading(false);
+  // Finish all file uploads first
+  await Promise.all(pendingUploads.map(({ index, file }) => handleFileUpload(index, file,'documents')));
 
-    if (success) {
-      onNext?.();
-    }
+  // Build your request body
+  const payload = {
+    application_id: 123, // TODO: Replace with real application ID from context
+    business_activity: formData.beneficialOwner, // Or wherever this lives
+    company_website: 'https://example.com', // Update this too
+    number_of_employees: 20, // Replace with actual data
+    has_subsidiaries: false, // or true, based on your UI
+    subsidiaries: [], // Add real data from formData if needed
+    business_forecast: {
+      currency: 'USD',
+      years: [
+        {
+          year: '2024',
+          annualTurnover: '1000000',
+          netCash: '150000'
+        }
+      ]
+    },
+    monthly_transactions: {
+      currency: 'EUR',
+      inflows: [{ currency: 'EUR', number: '5', value: '25000' }],
+      outflows: [{ currency: 'EUR', number: '3', value: '10000' }]
+    },
+    kyc_persons: formData.kycPersons
   };
+
+  try {
+    const token = localStorage.getItem('xano_token');
+    const res = await fetch('https://x8ki-letl-twmt.n7.xano.io/api:0KIvLLLF/stakeholders_info_docs', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      console.error('Xano error:', err);
+      setError('Failed to submit form data.');
+      setUploading(false);
+      return;
+    }
+
+    setUploading(false);
+    onNext?.(); // 🎉 Proceed to next page
+  } catch (err) {
+    console.error('Network error:', err);
+    setError('Something broke while submitting. It’s not you. Probably.');
+    setUploading(false);
+  }
+};
+
 
   const handleInputChange = (field: keyof DocumentsUBOData, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
