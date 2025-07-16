@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { Upload, Trash2, Plus, Minus, ChevronDown, ChevronUp, User, Calendar, Globe, Phone, Mail, CreditCard, FileText, Home, Building, Shield } from 'lucide-react';
 import { 
@@ -23,6 +24,7 @@ interface FileUpload {
   id: string;
   file: File;
   name: string;
+  fileUrl?: string; // Added fileUrl
 }
 
 interface UBOPerson {
@@ -122,7 +124,7 @@ const DocumentsUBOForm: React.FC<DocumentsUBOFormProps> = ({ onNext, onBack }) =
   const proofOfIdentityOptions = getProofOfIdentityOptions();
   const countries = getCountries();
   const fileUploadSettings = getFileUploadSettings();
-const [sectionsOpen, setSectionsOpen] = useState({
+  const [sectionsOpen, setSectionsOpen] = useState({
     kycSection: true,
     documentsSection: true,
     uboDetailsSection: true,
@@ -142,94 +144,73 @@ const [sectionsOpen, setSectionsOpen] = useState({
     setFormData(prev => ({ ...prev, companyType: type, documents }));
   };
 
- const handleDocumentUpload = async (index: number, file: File) => {
-  // Validate file size
-  const maxSizeInBytes = fileUploadSettings.maxFileSize * 1024 * 1024;
-  if (file.size > maxSizeInBytes) {
-    setError(`File size exceeds ${fileUploadSettings.maxFileSize}MB limit`);
-    return;
-  }
-
-  // Validate file format
-  if (!fileUploadSettings.allowedFormats.includes(file.type)) {
-    setError('Invalid file format. Please upload images or PDF files only.');
-    return;
-  }
-
-  // ADDED: Validate index
-  if (index < 0 || index >= formData.documents.length) {
-    setError(`Invalid document index: ${index}`);
-    return;
-  }
-
-  // Update state with file metadata
-  setFormData(prev => {
-    const newDocuments = prev.documents.map((doc, i) =>
-      i === index ? { ...doc, file, name: file.name, uploaded: true } : doc
-    );
-    // ADDED: Debug state update
-    console.log('Updated formData.documents:', newDocuments);
-    return { ...prev, documents: newDocuments };
-  });
-
-  // ADDED: Pass file directly to handleFileUpload to avoid race condition
-  setUploading(true);
-  setUploadProgress(prev => ({ ...prev, [index]: 0 }));
-  await handleFileUpload(index, file, 'documents'); // MODIFIED: Pass file directly
-  setUploading(false);
-  setUploadProgress(prev => ({ ...prev, [index]: 100 }));
-};
-
-const handleFileUpload = async (
-  index: number,
-  file: File,
-  section: keyof typeof formData
-) => {
-  const token = localStorage.getItem('xano_token');
-  if (!token) {
-    setError('Authentication token is missing');
-    return;
-  }
-
-  const uploadData = new FormData();
-  uploadData.append('file', file);
-
-  try {
-    const res = await fetch('https://x8ki-letl-twmt.n7.xano.io/api:RnQdTyTK/uploads', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        // DO NOT add Content-Type here
-      },
-      body: uploadData
-    });
-
-    const result = await res.json();
-    console.log("📦 Upload result:", result);
-
-    if (res.ok && result.path) {
+  const handleDocumentUpload = async (index: number, file: File) => {
+    try {
+      setUploading(true);
+      const url = await handleFileUpload(index, file);
       setFormData((prev) => {
-        const updatedDocs = [...(prev[section] as any[])];
-        updatedDocs[index] = {
-          ...updatedDocs[index],
-          fileUrl: result.path
+        const newDocs = [...prev.documents];
+        newDocs[index] = {
+          ...newDocs[index],
+          file,
+          fileUrl: url,
+          uploaded: true,
         };
-        return { ...prev, [section]: updatedDocs };
+        return { ...prev, documents: newDocs };
       });
-    } else {
-      setError('File upload failed. Please try again.');
-      console.error('❌ Upload failed:', result);
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('An unexpected error occurred during upload.');
+      }
+    } finally {
+      setUploading(false);
     }
-  } catch (err) {
-    setError('Network error occurred during file upload.');
-    console.error('🌩️ Upload error:', err);
-  }
-};
+  };
 
+  const handleFileUpload = async (index: number, file: File): Promise<string> => {
+    console.log('handleFileUpload called with file:', file.name);
+    const token = localStorage.getItem('xano_token');
+    console.log('Token:', token);
+    if (!token) {
+      console.error('Missing auth token');
+      throw new Error('Missing auth token');
+    }
 
+    const formData = new FormData();
+    formData.append('file', file);
+    console.log('FormData contents:', Array.from(formData.entries()));
 
+    try {
+      const res = await fetch('https://x8ki-letl-twmt.n7.xano.io/api:0KIvLLLF/things', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`
+        },
+        body: formData
+      });
+      console.log('API response status:', res.status, res.statusText);
 
-   
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error('API error response:', errText);
+        throw new Error(`Upload failed: ${errText}`);
+      }
+
+      const data = await res.json();
+      console.log('API response data:', data);
+      const url = data?.image?.url || '';
+      if (!url) {
+        console.error('No file URL in response');
+        throw new Error('No file URL returned from API');
+      }
+      return url;
+    } catch (err) {
+      console.error('Error in handleFileUpload:', err);
+      throw err;
+    }
+  };
 
   const handleDocumentRemove = (index: number) => {
     setFormData(prev => ({
@@ -244,92 +225,118 @@ const handleFileUpload = async (
     });
   };
 
-  //const handleNext = async () => {
-    //setError('');
-    //setUploading(true);
+  const handleNext = async () => {
+    setError('');
+    setUploading(true);
 
-    // Ensure all pending uploads are completed
-    //const pendingUploads = formData.documents
-    //.map((doc, index) => (doc.file && !doc.fileUrl ? { index, file: doc.file } : null))
-    //.filter((item): item is { index: number; file: File } => item !== null);
+    try {
+      // Handle pending uploads for formData.documents
+      const pendingUploads = formData.documents
+        .map((doc, index) => (doc.file && !doc.fileUrl ? { index, file: doc.file } : null))
+        .filter((item): item is { index: number; file: File } => item !== null);
+      await Promise.all(pendingUploads.map(({ index, file }) => handleFileUpload(index, file)));
 
-    // await Promise.all(pendingUploads.map(({ index, file }) => handleFileUpload(index, file)));
-      //const success = await handleCompanyDocumentsUpload();
-      //setUploading(false);
+      // Prepare kycPersons payload, excluding File objects
+      const kycPersonsPayload = formData.kycPersons.map(person => ({
+        ...person,
+        identityDocuments: person.identityDocuments.map(doc => ({
+          id: doc.id,
+          name: doc.name,
+          fileUrl: doc.fileUrl
+        })),
+        addressProofDocuments: person.addressProofDocuments.map(doc => ({
+          id: doc.id,
+          name: doc.name,
+          fileUrl: doc.fileUrl
+        })),
+        incorporationDocuments: person.incorporationDocuments.map(doc => ({
+          id: doc.id,
+          name: doc.name,
+          fileUrl: doc.fileUrl
+        })),
+        companyAddressProofDocuments: person.companyAddressProofDocuments.map(doc => ({
+          id: doc.id,
+          name: doc.name,
+          fileUrl: doc.fileUrl
+        })),
+        corporateRegistersDocuments: person.corporateRegistersDocuments.map(doc => ({
+          id: doc.id,
+          name: doc.name,
+          fileUrl: doc.fileUrl
+        })),
+        trustFormationDocuments: person.trustFormationDocuments.map(doc => ({
+          id: doc.id,
+          name: doc.name,
+          fileUrl: doc.fileUrl
+        })),
+        partiesIdentityDocuments: person.partiesIdentityDocuments.map(doc => ({
+          id: doc.id,
+          name: doc.name,
+          fileUrl: doc.fileUrl
+        })),
+        trusteeCorporateDocuments: person.trusteeCorporateDocuments.map(doc => ({
+          id: doc.id,
+          name: doc.name,
+          fileUrl: doc.fileUrl
+        })),
+        trusteeAddressProofDocuments: person.trusteeAddressProofDocuments.map(doc => ({
+          id: doc.id,
+          name: doc.name,
+          fileUrl: doc.fileUrl
+        }))
+      }));
 
-  //    if (success) {
-  //     onNext?.();
-    //  }
-    //setUploading(false);
-  //onNext?.();
-    //};
+      const payload = {
+        application_id: 123,
+        business_activity: formData.beneficialOwner,
+        company_website: 'https://example.com',
+        number_of_employees: 20,
+        has_subsidiaries: false,
+        subsidiaries: [],
+        business_forecast: {
+          currency: 'USD',
+          years: [
+            {
+              year: '2024',
+              annualTurnover: '1000000',
+              netCash: '150000'
+            }
+          ]
+        },
+        monthly_transactions: {
+          currency: 'EUR',
+          inflows: [{ currency: 'EUR', number: '5', value: '25000' }],
+          outflows: [{ currency: 'EUR', number: '3', value: '10000' }]
+        },
+        kyc_persons: kycPersonsPayload
+      };
 
+      const token = localStorage.getItem('xano_token');
+      console.log('Token for submission screenwriter:', token);
+      const response = await fetch('https://x8ki-letl-twmt.n7.xano.io/api:0KIvLLLF/stakeholders_info_docs', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
 
-const handleNext = async () => {
-  setError('');
-  setUploading(true);
-
-  const pendingUploads = formData.documents
-    .map((doc, index) => (doc.file && !doc.fileUrl ? { index, file: doc.file } : null))
-    .filter((item): item is { index: number; file: File } => item !== null);
-
-  // Finish all file uploads first
-  await Promise.all(pendingUploads.map(({ index, file }) => handleFileUpload(index, file,'documents')));
-
-  // Build your request body
-  const payload = {
-    application_id: 123, // TODO: Replace with real application ID from context
-    business_activity: formData.beneficialOwner, // Or wherever this lives
-    company_website: 'https://example.com', // Update this too
-    number_of_employees: 20, // Replace with actual data
-    has_subsidiaries: false, // or true, based on your UI
-    subsidiaries: [], // Add real data from formData if needed
-    business_forecast: {
-      currency: 'USD',
-      years: [
-        {
-          year: '2024',
-          annualTurnover: '1000000',
-          netCash: '150000'
-        }
-      ]
-    },
-    monthly_transactions: {
-      currency: 'EUR',
-      inflows: [{ currency: 'EUR', number: '5', value: '25000' }],
-      outflows: [{ currency: 'EUR', number: '3', value: '10000' }]
-    },
-    kyc_persons: formData.kycPersons
-  };
-
-  try {
-    const token = localStorage.getItem('xano_token');
-    const res = await fetch('https://x8ki-letl-twmt.n7.xano.io/api:0KIvLLLF/stakeholders_info_docs', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`
-      },
-      body: JSON.stringify(payload)
-    });
-
-    if (!res.ok) {
-      const err = await res.json();
-      console.error('Xano error:', err);
-      setError('Failed to submit form data.');
+      const result = await response.json();
+      if (response.ok) {
+        console.log('✅ Submission success:', result);
+        onNext?.();
+      } else {
+        console.error('❌ Submission failed:', result);
+        setError(result.message || 'Submission failed');
+      }
+    } catch (err) {
+      console.error('💥 Network error:', err);
+      setError('Network error during submission');
+    } finally {
       setUploading(false);
-      return;
     }
-
-    setUploading(false);
-    onNext?.(); // 🎉 Proceed to next page
-  } catch (err) {
-    console.error('Network error:', err);
-    setError('Something broke while submitting. It’s not you. Probably.');
-    setUploading(false);
-  }
-};
-
+  };
 
   const handleInputChange = (field: keyof DocumentsUBOData, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -445,23 +452,43 @@ const handleNext = async () => {
     | 'trusteeCorporateDocuments'
     | 'trusteeAddressProofDocuments';
 
-  const addDocumentToPerson = (personId: string, documentType: DocumentFieldType, files: FileList) => {
+  const addDocumentToPerson = async (personId: string, documentType: DocumentFieldType, files: FileList) => {
     if (!validateFileUpload(files)) return;
 
-    const newFiles: FileUpload[] = Array.from(files).map(file => ({
-      id: Date.now().toString() + Math.random(),
-      file,
-      name: file.name
-    }));
+    setUploading(true);
+    try {
+      const newFiles: FileUpload[] = await Promise.all(
+        Array.from(files).map(async (file) => {
+          const url = await handleFileUpload(Date.now(), file);
+          return {
+            id: Date.now().toString() + Math.random(),
+            file,
+            name: file.name,
+            fileUrl: url
+          };
+        })
+      );
 
-    setFormData(prev => ({
-      ...prev,
-      kycPersons: prev.kycPersons.map(person =>
-        person.id === personId 
-          ? { ...person, [documentType]: [...person[documentType], ...newFiles] }
-          : person
-      )
-    }));
+      setFormData(prev => {
+        console.log('Updated kycPersons with new files:', newFiles);
+        return {
+          ...prev,
+          kycPersons: prev.kycPersons.map(person =>
+            person.id === personId
+              ? { ...person, [documentType]: [...person[documentType], ...newFiles] }
+              : person
+          )
+        };
+      });
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('An unexpected error occurred during upload.');
+      }
+    } finally {
+      setUploading(false);
+    }
   };
 
   const removeDocumentFromPerson = (personId: string, documentType: DocumentFieldType, fileId: string) => {
@@ -528,6 +555,7 @@ const handleNext = async () => {
               accept={fileUploadSettings.allowedFormats.join(',')}
               className="hidden"
               onChange={(e) => {
+                console.log('File input changed:', e.target.files);
                 if (e.target.files && e.target.files.length > 0) {
                   addDocumentToPerson(person.id, documentType, e.target.files);
                 }
@@ -540,7 +568,14 @@ const handleNext = async () => {
           </label>
           {person[documentType].map((doc) => (
             <div key={doc.id} className="flex items-center justify-between bg-white p-2 rounded border">
-              <span className="text-sm text-gray-700 truncate flex-1">{doc.name}</span>
+              <div className="flex-1">
+                <span className="text-sm text-gray-700 truncate">{doc.name}</span>
+                {doc.fileUrl && (
+                  <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">
+                    View File
+                  </a>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={() => removeDocumentFromPerson(person.id, documentType, doc.id)}
